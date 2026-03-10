@@ -126,10 +126,15 @@ def student_delete(request, pk):
 
 @login_required
 def export_csv(request):
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="students.csv"'
-    writer = csv.writer(response)
-    writer.writerow(['Full Name', 'Email', 'Phone', 'Course', 'Date of Admission', 'Created At'])
-    for s in Student.objects.all():
-        writer.writerow([s.full_name, s.email, s.phone, s.course, s.date_of_admission, s.created_at])
-    return response
+    try:
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="students.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['Full Name', 'Email', 'Phone', 'Course', 'Date of Admission'])
+        for s in Student.objects.all():
+            writer.writerow([s.full_name, s.email, s.phone, s.course, s.date_of_admission])
+        return response
+    except Exception as e:
+        from django.contrib import messages
+        messages.error(request, f"Export failed: {str(e)}")
+        return redirect('student_list')
