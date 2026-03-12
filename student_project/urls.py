@@ -23,6 +23,7 @@ urlpatterns = [
     path('register/', student_views.register_view, name='register'),
     path('login/', student_views.login_view, name='login'),
     path('logout/', student_views.logout_view, name='logout'),
+    path('no-permission/', student_views.no_permission_view, name='no_permission'),
     path('students/', include('students.urls')),
     path('', student_views.dashboard_view, name='dashboard'),
 ]

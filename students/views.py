@@ -1,8 +1,3 @@
-from django.shortcuts import render
-from .models import Student
-from .forms import StudentForm
-
-# Create your views here.
 import csv
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
@@ -12,25 +7,47 @@ from django.core.paginator import Paginator
 from django.http import HttpResponse
 
 from .models import Student
-from .forms import StudentForm, RegisterForm
+from .forms import StudentForm, StudentRegistrationForm
+from django.contrib.auth.models import User
+from .forms import StudentForm, StudentRegistrationForm
 
 
 # ─── Auth Views ────────────────────────────────────────────────────────────────
 
 def register_view(request):
     if request.user.is_authenticated:
-        return redirect('student_list')
-    form = RegisterForm(request.POST or None)
-    if request.method == 'POST' and form.is_valid():
-        form.save()
-        messages.success(request, "Account created! Please log in.")
-        return redirect('login')
-    return render(request, 'registration/register.html', {'form': form})
+        if request.user.is_superuser:
+            return redirect('dashboard')
+        return redirect('no_permission')
 
+    form = StudentRegistrationForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        # Create Django user account
+        user = User.objects.create_user(
+            username=form.cleaned_data['username'],
+            email=form.cleaned_data['email'],
+            password=form.cleaned_data['password']
+        )
+
+        # Save student info to Student model
+        Student.objects.create(
+            full_name=form.cleaned_data['full_name'],
+            email=form.cleaned_data['email'],
+            phone=form.cleaned_data['phone'],
+            course=form.cleaned_data['course'],
+            date_of_admission=form.cleaned_data['date_of_admission']
+        )
+
+        messages.success(request, "Registration successful! Please log in.")
+        return redirect('login')
+
+    return render(request, 'registration/register.html', {'form': form})
 
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('student_list')
+        if request.user.is_superuser:
+            return redirect('dashboard')
+        return redirect('no_permission')
     error = None
     if request.method == 'POST':
         user = authenticate(
@@ -40,7 +57,10 @@ def login_view(request):
         )
         if user:
             login(request, user)
-            return redirect(request.GET.get('next', 'student_list'))
+            if user.is_superuser:
+                return redirect('dashboard')
+            else:
+                return redirect('no_permission')
         error = "Invalid username or password."
     return render(request, 'registration/login.html', {'error': error})
 
@@ -50,9 +70,26 @@ def logout_view(request):
     return redirect('login')
 
 
+def no_permission_view(request):
+    return render(request, 'students/no_permission.html')
+
+
+# ─── Admin-only check ──────────────────────────────────────────────────────────
+
+def admin_required(view_func):
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect('login')
+        if not request.user.is_superuser:
+            return redirect('no_permission')
+        return view_func(request, *args, **kwargs)
+    wrapper.__name__ = view_func.__name__
+    return wrapper
+
+
 # ─── Dashboard ─────────────────────────────────────────────────────────────────
 
-@login_required
+@admin_required
 def dashboard_view(request):
     total = Student.objects.count()
     recent = Student.objects.order_by('-date_of_admission')[:5]
@@ -66,7 +103,7 @@ def dashboard_view(request):
 
 # ─── Student CRUD ──────────────────────────────────────────────────────────────
 
-@login_required
+@admin_required
 def student_list(request):
     query = request.GET.get('q', '')
     course_filter = request.GET.get('course', '')
@@ -88,7 +125,7 @@ def student_list(request):
     })
 
 
-@login_required
+
 def student_add(request):
     form = StudentForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -98,7 +135,7 @@ def student_add(request):
     return render(request, 'students/student_form.html', {'form': form, 'title': 'Add Student'})
 
 
-@login_required
+@admin_required
 def student_edit(request, pk):
     student = get_object_or_404(Student, pk=pk)
     form = StudentForm(request.POST or None, instance=student)
@@ -109,12 +146,9 @@ def student_edit(request, pk):
     return render(request, 'students/student_form.html', {'form': form, 'title': 'Edit Student', 'student': student})
 
 
-@login_required
+@admin_required
 def student_delete(request, pk):
     student = get_object_or_404(Student, pk=pk)
-    if not request.user.is_superuser:
-        messages.error(request, "Only superusers can delete students.")
-        return redirect('student_list')
     if request.method == 'POST':
         student.delete()
         messages.success(request, "Student deleted successfully!")
@@ -124,7 +158,7 @@ def student_delete(request, pk):
 
 # ─── CSV Export ────────────────────────────────────────────────────────────────
 
-@login_required
+@admin_required
 def export_csv(request):
     try:
         response = HttpResponse(content_type='text/csv')
@@ -135,6 +169,5 @@ def export_csv(request):
             writer.writerow([s.full_name, s.email, s.phone, s.course, s.date_of_admission])
         return response
     except Exception as e:
-        from django.contrib import messages
         messages.error(request, f"Export failed: {str(e)}")
         return redirect('student_list')
